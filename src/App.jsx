@@ -1,18 +1,19 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import './App.css'
 import { callAIModel } from './api'
 
 function App() {
+  const [testCaseName, setTestCaseName] = useState('')
   const [prompt, setPrompt] = useState('')
   const [expectedOutput, setExpectedOutput] = useState('')
-  const [constraints, setConstraints] = useState('')
+  const [requirements, setRequirements] = useState('')
+  const [avoid, setAvoid] = useState('')
   const [model, setModel] = useState('claude-sonnet-4.5')
   const [responses, setResponses] = useState([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [savedTests, setSavedTests] = useState([])
   const [showTestLibrary, setShowTestLibrary] = useState(false)
-  const [compareMode, setCompareMode] = useState(false)
   const [selectedModels, setSelectedModels] = useState([])
   const [showPromptConfig, setShowPromptConfig] = useState(false)
   const [evaluationPrompts, setEvaluationPrompts] = useState({
@@ -22,9 +23,17 @@ function App() {
 EXPECTED OUTPUT CRITERIA:
 "{expectedOutput}"
 
-Question: Does the RESPONSE TEXT match the EXPECTED OUTPUT CRITERIA?
+Does the RESPONSE TEXT meet the EXPECTED OUTPUT CRITERIA?
 
-Be strict and literal. Focus ONLY on the response text itself, not the criteria wording.`,
+EVALUATION INSTRUCTIONS:
+1. Break down the criteria into specific, testable requirements
+2. For each requirement, examine the actual response text and gather evidence
+3. If ANY requirement involves counting/measuring (syllables, words, lines, characters, items, format, structure, etc.), you MUST count/measure in the actual response and show your calculation
+4. Do NOT trust claims in the response - verify everything that can be verified
+5. Mark each requirement: ✓ (met), ✗ (not met), or ~ (partially met)
+6. Base your final determination ONLY on your analysis, not on assumptions
+
+Be strict and literal. Focus on what the response actually contains, not what it claims to contain.`,
     
     constraints: `RESPONSE TEXT TO CHECK:
 "{response}"
@@ -32,15 +41,30 @@ Be strict and literal. Focus ONLY on the response text itself, not the criteria 
 CONSTRAINTS (what should NOT be in the response):
 {constraints}
 
-Question: Does the RESPONSE TEXT violate any constraints?
+Does the RESPONSE TEXT violate any of these constraints?
 
-Examine ONLY the response text, not the constraint wording itself. Report violations clearly.`
+EVALUATION INSTRUCTIONS:
+1. Examine ONLY the response text itself, not the constraint descriptions
+2. Check each constraint separately
+3. Mark each as ✓ (no violation) or ✗ (violation found)
+4. Provide specific evidence for any violations`
   })
 
   const allModels = [
     { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', group: 'Anthropic' },
-    { id: 'claude-4-opus', name: 'Claude 4 Opus', group: 'Anthropic' },
-    { id: 'gpt-4.1', name: 'GPT-4.1', group: 'OpenAI' },
+    { id: 'claude-opus-4.1', name: 'Claude Opus 4.1', group: 'Anthropic' },
+    { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', group: 'Anthropic' },
+    { id: 'claude-opus-4', name: 'Claude Opus 4', group: 'Anthropic' },
+    { id: 'claude-sonnet-3.7', name: 'Claude Sonnet 3.7', group: 'Anthropic' },
+    { id: 'claude-opus-3.7', name: 'Claude Opus 3.7', group: 'Anthropic' },
+    { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (New)', group: 'Anthropic' },
+    { id: 'claude-3.5-haiku', name: 'Claude 3.5 Haiku', group: 'Anthropic' },
+    { id: 'claude-code', name: 'Claude Code (agentic)', group: 'Anthropic' },
+    { id: 'gpt-5', name: 'GPT-5', group: 'OpenAI' },
+    { id: 'gpt-5-mini', name: 'GPT-5-mini', group: 'OpenAI' },
+    { id: 'gpt-5-nano', name: 'GPT-5-nano', group: 'OpenAI' },
+    { id: 'gpt-5-chat', name: 'GPT-5-chat', group: 'OpenAI' },
+    { id: 'gpt-5-codex', name: 'GPT-5-codex', group: 'OpenAI' },
     { id: 'gpt-4o', name: 'GPT-4o', group: 'OpenAI' },
     { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', group: 'OpenAI' },
   ]
@@ -54,11 +78,17 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
   }, [])
 
   const toggleModelSelection = (modelId) => {
-    setSelectedModels(prev => 
-      prev.includes(modelId) 
-        ? prev.filter(m => m !== modelId)
-        : [...prev, modelId]
-    )
+    setSelectedModels(prev => {
+      if (prev.includes(modelId)) {
+        // Allow unchecking
+        return prev.filter(m => m !== modelId)
+      } else if (prev.length < 3) {
+        // Only allow checking if less than 3 selected
+        return [...prev, modelId]
+      }
+      // Already have 3 selected, don't add more
+      return prev
+    })
   }
 
   const handleSubmit = async (e) => {
@@ -72,10 +102,10 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
     setResponses([])
     
     try {
-      const modelsToTest = compareMode ? selectedModels : [model]
+      const modelsToTest = selectedModels.length > 0 ? selectedModels : [model]
       
-      if (compareMode && modelsToTest.length === 0) {
-        setError('Please select at least one model to compare')
+      if (selectedModels.length === 0) {
+        setError('Please select at least one model')
         setIsLoading(false)
         return
       }
@@ -84,13 +114,15 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
       
       for (const testModel of modelsToTest) {
         const result = await callAIModel(prompt, testModel)
-        const structuralChecks = await runStructuralChecksWithConstraints(result.response, expectedOutput, prompt, constraints)
+        const structuralChecks = await runStructuralChecksWithConstraints(result.response, expectedOutput, prompt, requirements, avoid)
         
         const newResponse = {
           id: Date.now() + Math.random(),
+          testCaseName: testCaseName,
           prompt: prompt,
           expectedOutput: expectedOutput,
-          constraints: constraints,
+          requirements: requirements,
+          avoid: avoid,
           model: testModel,
           response: result.response,
           timestamp: new Date().toLocaleString(),
@@ -108,11 +140,7 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
       }
       
       setResponses(results)
-      if (!compareMode) {
-        setPrompt('')
-        setExpectedOutput('')
-        setConstraints('')
-      }
+      // Keep form filled for iteration
     } catch (err) {
       setError(err.message)
     } finally {
@@ -130,27 +158,59 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
     ))
   }
 
-  // AI-based constraint checking (moved to automated checks)
-  const checkConstraintsWithAI = async (response, constraints) => {
-    if (!constraints) return null
+  // AI-based requirement checking
+  const checkRequirementsWithAI = async (response, requirements) => {
+    if (!requirements) return null
     
-    const prompt = evaluationPrompts.constraints
-      .replace('{response}', response)
-      .replace('{constraints}', constraints)
+    const prompt = `RESPONSE TEXT TO CHECK:
+"${response}"
+
+REQUIREMENTS (what MUST be included):
+${requirements}
+
+Question: Does the RESPONSE TEXT include all the required elements?
+
+Examine the response text and verify each requirement is met.`
     
-    const constraintEval = await runAIEvaluation(response, prompt)
+    const requirementEval = await runAIEvaluation(response, prompt)
     
     return {
-      name: 'Constraints',
-      passed: constraintEval.passed,
-      details: constraintEval.details,
+      name: 'Requirements Met',
+      result: requirementEval.result,
+      passed: requirementEval.passed,
+      details: requirementEval.details,
+      type: 'ai-judge'
+    }
+  }
+
+  // AI-based avoid checking
+  const checkAvoidWithAI = async (response, avoid) => {
+    if (!avoid) return null
+    
+    const prompt = `RESPONSE TEXT TO CHECK:
+"${response}"
+
+AVOID (what should NOT be in the response):
+${avoid}
+
+Question: Does the RESPONSE TEXT violate any avoid constraints?
+
+Examine ONLY the response text, not the constraint wording itself. Report violations clearly.`
+    
+    const avoidEval = await runAIEvaluation(response, prompt)
+    
+    return {
+      name: 'Avoid Compliance',
+      result: avoidEval.result,
+      passed: avoidEval.passed,
+      details: avoidEval.details,
       type: 'ai-judge'
     }
   }
 
   const runAIEvaluation = async (response, criteria) => {
     try {
-      const evalResponse = await fetch('http://localhost:3001/api/evaluate', {
+      const evalResponse = await fetch('/api/evaluate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -159,12 +219,19 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
       })
       
       if (!evalResponse.ok) {
-        return { passed: false, details: 'AI evaluation failed' }
+        const errorData = await evalResponse.json().catch(() => ({}))
+        const errorMsg = errorData.error || `HTTP ${evalResponse.status}: ${evalResponse.statusText}`
+        return { result: 'FAIL', details: `AI evaluation failed: ${errorMsg}`, passed: false }
       }
       
-      return await evalResponse.json()
+      const evalResult = await evalResponse.json()
+      return {
+        result: evalResult.result, // PASS, PARTIAL, or FAIL
+        details: evalResult.details,
+        passed: evalResult.result === 'PASS' // For backward compatibility with existing checks
+      }
     } catch (error) {
-      return { passed: false, details: 'AI evaluation error' }
+      return { result: 'FAIL', details: `AI evaluation error: ${error.message}`, passed: false }
     }
   }
 
@@ -183,6 +250,7 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
     const semanticEval = await runAIEvaluation(response, matchPrompt)
     checks.push({
       name: 'Matches Expected Output',
+      result: semanticEval.result,
       passed: semanticEval.passed,
       details: semanticEval.details,
       type: 'ai-judge'
@@ -226,14 +294,22 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
     return checks
   }
   
-  const runStructuralChecksWithConstraints = async (response, expectedOutput, prompt, constraints) => {
+  const runStructuralChecksWithConstraints = async (response, expectedOutput, prompt, requirements, avoid) => {
     const checks = await runStructuralChecks(response, expectedOutput, prompt)
     
-    // Add AI-based constraint check if constraints are provided
-    if (constraints) {
-      const constraintCheck = await checkConstraintsWithAI(response, constraints)
-      if (constraintCheck) {
-        checks.push(constraintCheck)
+    // Add AI-based requirement check if requirements are provided
+    if (requirements) {
+      const requirementCheck = await checkRequirementsWithAI(response, requirements)
+      if (requirementCheck) {
+        checks.push(requirementCheck)
+      }
+    }
+    
+    // Add AI-based avoid check if avoid constraints are provided
+    if (avoid) {
+      const avoidCheck = await checkAvoidWithAI(response, avoid)
+      if (avoidCheck) {
+        checks.push(avoidCheck)
       }
     }
     
@@ -241,13 +317,18 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
   }
 
   const saveAsTestCase = (response) => {
+    // Use current testCaseName from state, fallback to response, then timestamp
+    const finalTestCaseName = testCaseName?.trim() || response.testCaseName?.trim() || `Test-${Date.now()}`
+    
     const testCase = {
       id: Date.now(),
+      testCaseName: finalTestCaseName,
       prompt: response.prompt,
       expectedOutput: response.expectedOutput || response.response,
-      constraints: response.constraints,
+      requirements: response.requirements,
+      avoid: response.avoid,
       model: response.model,
-      models: compareMode ? selectedModels : [response.model]
+      models: selectedModels.length > 0 ? selectedModels : [response.model]
     }
     const updated = [...savedTests, testCase]
     setSavedTests(updated)
@@ -256,17 +337,17 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
   }
 
   const loadTest = (test) => {
+    setTestCaseName(test.testCaseName || '')
     setPrompt(test.prompt)
     setExpectedOutput(test.expectedOutput || '')
-    setConstraints(test.constraints || '')
+    setRequirements(test.requirements || '')
+    setAvoid(test.avoid || '')
     
     // Load saved models if available
-    if (test.models && test.models.length > 1) {
-      setCompareMode(true)
+    if (test.models && test.models.length > 0) {
       setSelectedModels(test.models)
     } else {
-      setCompareMode(false)
-      setModel(test.model)
+      setSelectedModels([test.model])
     }
     
     setShowTestLibrary(false)
@@ -359,18 +440,30 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
 EXPECTED OUTPUT CRITERIA:
 "{expectedOutput}"
 
-Question: Does the RESPONSE TEXT match the EXPECTED OUTPUT CRITERIA?
+Does the RESPONSE TEXT meet the EXPECTED OUTPUT CRITERIA?
 
-Be strict and literal. Focus ONLY on the response text itself, not the criteria wording.`,
+EVALUATION INSTRUCTIONS:
+1. Break down the criteria into specific, testable requirements
+2. For each requirement, examine the actual response text and gather evidence
+3. If ANY requirement involves counting/measuring (syllables, words, lines, characters, items, format, structure, etc.), you MUST count/measure in the actual response and show your calculation
+4. Do NOT trust claims in the response - verify everything that can be verified
+5. Mark each requirement: ✓ (met), ✗ (not met), or ~ (partially met)
+6. Base your final determination ONLY on your analysis, not on assumptions
+
+Be strict and literal. Focus on what the response actually contains, not what it claims to contain.`,
                       constraints: `RESPONSE TEXT TO CHECK:
 "{response}"
 
 CONSTRAINTS (what should NOT be in the response):
 {constraints}
 
-Question: Does the RESPONSE TEXT violate any constraints?
+Does the RESPONSE TEXT violate any of these constraints?
 
-Examine ONLY the response text, not the constraint wording itself. Report violations clearly.`
+EVALUATION INSTRUCTIONS:
+1. Examine ONLY the response text itself, not the constraint descriptions
+2. Check each constraint separately
+3. Mark each as ✓ (no violation) or ✗ (violation found)
+4. Provide specific evidence for any violations`
                     })
                   }}
                   className="delete-test-btn"
@@ -395,6 +488,11 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
                 <div key={test.id} className="test-item">
                   <div className="test-item-content">
                     <div className="test-item-header">
+                      {test.testCaseName && (
+                        <div style={{fontWeight: 'bold', fontSize: '1rem', marginBottom: '0.5rem', color: '#667eea'}}>
+                          {test.testCaseName}
+                        </div>
+                      )}
                       {(test.models || [test.model]).map((modelName, idx) => (
                         <span key={idx} className="test-model-badge">{modelName}</span>
                       ))}
@@ -407,9 +505,14 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
                         <strong>Expected:</strong> {test.expectedOutput}
                       </div>
                     )}
-                    {test.constraints && (
+                    {test.requirements && (
+                      <div className="test-item-expected">
+                        <strong>Requirements:</strong> {test.requirements}
+                      </div>
+                    )}
+                    {test.avoid && (
                       <div className="test-item-constraints">
-                        <strong>Constraints:</strong> {test.constraints}
+                        <strong>Avoid:</strong> {test.avoid}
                       </div>
                     )}
                   </div>
@@ -435,13 +538,6 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
               <div className="model-selection-header">
                 <label htmlFor="model">Model Selection</label>
                 <div className="header-actions">
-                  <button 
-                    type="button"
-                    onClick={() => setCompareMode(!compareMode)} 
-                    className={`compare-toggle ${compareMode ? 'active' : ''}`}
-                  >
-                    {compareMode ? '☑️ Compare Mode' : '☐ Compare Mode'}
-                  </button>
                   {savedTests.length > 0 && (
                     <button 
                       type="button"
@@ -461,43 +557,58 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
                 </div>
               </div>
               
-              {!compareMode ? (
-                <select 
-                  id="model"
-                  value={model} 
-                  onChange={(e) => setModel(e.target.value)}
-                  className="model-select"
-                >
-                <optgroup label="Anthropic (Claude)">
-                  <option value="claude-sonnet-4.5">Claude Sonnet 4.5 ⚡ Latest</option>
-                  <option value="claude-4-opus">Claude 4 Opus</option>
-                  <option value="claude-3-opus">Claude 3 Opus</option>
-                </optgroup>
-                <optgroup label="OpenAI">
-                  <option value="gpt-4.1">GPT-4.1 ⚡ Latest (1M tokens)</option>
-                  <option value="gpt-4o">GPT-4o</option>
-                  <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo (cheap)</option>
-                </optgroup>
-                <optgroup label="Open Source">
-                  <option value="deepseek-r1">DeepSeek R1 (reasoning)</option>
-                  <option value="llama-4-maverick">LLaMA 4 Maverick (code)</option>
-                </optgroup>
-                </select>
-              ) : (
-                <div className="model-checkboxes">
-                  {allModels.map(m => (
-                    <label key={m.id} className="model-checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={selectedModels.includes(m.id)}
-                        onChange={() => toggleModelSelection(m.id)}
-                      />
-                      <span className="model-name">{m.name}</span>
-                    </label>
-                  ))}
+              <div>
+                <div style={{marginBottom: '0.5rem', fontSize: '0.9rem', color: selectedModels.length >= 3 ? '#d32f2f' : '#666'}}>
+                  Selected: {selectedModels.length}/3 models {selectedModels.length >= 3 && '(max reached)'}
                 </div>
-              )}
+                <div className="model-checkboxes-grouped">
+                  <div className="model-group">
+                    <div className="model-group-header">Anthropic</div>
+                    <div style={{display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'flex-start', alignItems: 'center'}}>
+                      {allModels.filter(m => m.group === 'Anthropic').map(m => (
+                        <label key={m.id} className="model-checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={selectedModels.includes(m.id)}
+                            onChange={() => toggleModelSelection(m.id)}
+                            disabled={!selectedModels.includes(m.id) && selectedModels.length >= 3}
+                          />
+                          <span className="model-name" style={{opacity: (!selectedModels.includes(m.id) && selectedModels.length >= 3) ? 0.4 : 1}}>{m.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="model-group">
+                    <div className="model-group-header">OpenAI</div>
+                    <div style={{display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'flex-start', alignItems: 'center'}}>
+                      {allModels.filter(m => m.group === 'OpenAI').map(m => (
+                        <label key={m.id} className="model-checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={selectedModels.includes(m.id)}
+                            onChange={() => toggleModelSelection(m.id)}
+                            disabled={!selectedModels.includes(m.id) && selectedModels.length >= 3}
+                          />
+                          <span className="model-name" style={{opacity: (!selectedModels.includes(m.id) && selectedModels.length >= 3) ? 0.4 : 1}}>{m.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="testCaseName">Test Case Name / ID (Optional)</label>
+              <input
+                type="text"
+                id="testCaseName"
+                value={testCaseName}
+                onChange={(e) => setTestCaseName(e.target.value)}
+                placeholder="e.g., TC-001: Edge case empty input, swedish_haiku_test"
+                className="prompt-input"
+                style={{height: 'auto', padding: '0.75rem'}}
+              />
             </div>
 
             <div className="form-group">
@@ -525,15 +636,30 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
             </div>
 
             <div className="form-group">
-              <label htmlFor="constraints">
-                Constraints - What NOT to include (Optional)
-                <span className="label-hint">Examples: no explanations, avoid code, max 50 words</span>
+              <label htmlFor="requirements">
+                Requirements - What MUST be included (Optional)
+                <span className="label-hint">Examples: include customer name, mention refund policy, cite sources</span>
               </label>
               <textarea
-                id="constraints"
-                value={constraints}
-                onChange={(e) => setConstraints(e.target.value)}
-                placeholder="no explanations, avoid technical jargon, max 20 words"
+                id="requirements"
+                value={requirements}
+                onChange={(e) => setRequirements(e.target.value)}
+                placeholder="include customer name, mention refund amount, provide timeline"
+                rows="2"
+                className="prompt-input"
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="avoid">
+                Avoid - What should NOT be included (Optional)
+                <span className="label-hint">Examples: no explanations, avoid code, no technical jargon</span>
+              </label>
+              <textarea
+                id="avoid"
+                value={avoid}
+                onChange={(e) => setAvoid(e.target.value)}
+                placeholder="no explanations, avoid technical jargon, no marketing language"
                 rows="2"
                 className="prompt-input"
               />
@@ -565,6 +691,18 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
             </div>
           ) : (
             <div className="comparison-grid">
+              {/* Test Case Name */}
+              {responses[0]?.testCaseName && (
+                <div className="comparison-row">
+                  <div className="row-label">Test Case</div>
+                  {responses.map((result) => (
+                    <div key={`testname-${result.id}`} className="row-content" style={{background: '#f0f4ff', fontWeight: 'bold', color: '#667eea'}}>
+                      {result.testCaseName}
+                    </div>
+                  ))}
+                </div>
+              )}
+              
               {/* Model Headers */}
               <div className="comparison-row">
                 <div className="row-label">Model</div>
@@ -582,7 +720,7 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
               <div className="comparison-row">
                 <div className="row-label">Response</div>
                 {responses.map((result) => (
-                  <div key={`response-${result.id}`} className="row-content">
+                  <div key={`response-${result.id}`} className="row-content" style={{whiteSpace: 'pre-line'}}>
                     {result.response}
                   </div>
                 ))}
@@ -601,21 +739,52 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
               )}
 
               {/* Automated Checks */}
-              {responses[0]?.structuralChecks?.map((_, checkIdx) => (
-                <div key={`check-${checkIdx}`} className="comparison-row">
-                  <div className="row-label">{responses[0].structuralChecks[checkIdx].name}</div>
-                  {responses.map((result) => {
-                    const check = result.structuralChecks[checkIdx]
-                    return (
-                      <div key={`check-${result.id}-${checkIdx}`} className="row-content" style={{
-                        background: check.passed ? '#e8f5e9' : '#ffebee'
-                      }}>
-                        <span>{check.passed ? '✅' : '❌'}</span> {check.details}
+              {responses[0]?.structuralChecks?.map((_, checkIdx) => {
+                const isMatchesExpectedCheck = responses[0].structuralChecks[checkIdx].name === 'Matches Expected Output'
+                return (
+                  <React.Fragment key={`check-fragment-${checkIdx}`}>
+                    <div key={`check-${checkIdx}`} className="comparison-row">
+                      <div className="row-label">{responses[0].structuralChecks[checkIdx].name}</div>
+                      {responses.map((result) => {
+                        const check = result.structuralChecks[checkIdx]
+                        const checkResult = check.result || (check.passed ? 'PASS' : 'FAIL')
+                        const bgColor = checkResult === 'PASS' ? '#e8f5e9' : checkResult === 'PARTIAL' ? '#fff9c4' : '#ffebee'
+                        const icon = checkResult === 'PASS' ? '✅' : checkResult === 'PARTIAL' ? '⚠️' : '❌'
+                        return (
+                          <div key={`check-${result.id}-${checkIdx}`} className="row-content" style={{
+                            background: bgColor,
+                            whiteSpace: 'pre-line'
+                          }}>
+                            <span>{icon}</span> {check.details}
+                          </div>
+                        )
+                      })}
+                    </div>
+                    
+                    {/* Show Requirements and Avoid after the first check (Matches Expected Output) */}
+                    {isMatchesExpectedCheck && responses[0]?.requirements && (
+                      <div className="comparison-row">
+                        <div className="row-label">Requirements</div>
+                        {responses.map((result) => (
+                          <div key={`requirements-${result.id}`} className="row-content" style={{background: '#e3f2fd'}}>
+                            {result.requirements}
+                          </div>
+                        ))}
                       </div>
-                    )
-                  })}
-                </div>
-              ))}
+                    )}
+                    {isMatchesExpectedCheck && responses[0]?.avoid && (
+                      <div className="comparison-row">
+                        <div className="row-label">Avoid</div>
+                        {responses.map((result) => (
+                          <div key={`avoid-${result.id}`} className="row-content" style={{background: '#fff3e0'}}>
+                            {result.avoid}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </React.Fragment>
+                )
+              })}
 
               {/* Save Button */}
               <div className="comparison-row">
