@@ -1,0 +1,13 @@
+# AI Assistant Rules
+
+**CRITICAL: Always check documentation using Context7 before writing code with external libraries/frameworks.**
+
+Fetch docs when:
+- Writing React, Next.js, Vue, or any framework code
+- Using any library (Tailwind, Express, etc.)
+- Implementing specific features (hooks, APIs, routing)
+- User mentions versions or you're uncertain about syntax
+
+Use: `mcp_context7_resolve-library-id` → `mcp_context7_get-library-docs`
+
+This project: React (Vite) + API integrations
