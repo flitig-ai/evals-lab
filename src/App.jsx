@@ -41,6 +41,19 @@ function App() {
     const saved = localStorage.getItem('evalTests')
     if (saved) {
       setSavedTests(JSON.parse(saved))
+    } else {
+      // Load default test case if no saved tests exist
+      const defaultTest = {
+        id: Date.now(),
+        testCaseName: 'TC-001 Proper Haiku',
+        prompt: 'Write a haiku in Swedish',
+        expectedOutput: 'Proper haiku format',
+        requirements: 'Some words in Swedish',
+        avoid: 'Any english words',
+        models: ['claude-sonnet-4.5', 'gpt-4o']
+      }
+      setSavedTests([defaultTest])
+      localStorage.setItem('evalTests', JSON.stringify([defaultTest]))
     }
   }, [])
 
