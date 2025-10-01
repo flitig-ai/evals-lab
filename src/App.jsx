@@ -16,39 +16,6 @@ function App() {
   const [showTestLibrary, setShowTestLibrary] = useState(false)
   const [selectedModels, setSelectedModels] = useState([])
   const [showPromptConfig, setShowPromptConfig] = useState(false)
-  const [evaluationPrompts, setEvaluationPrompts] = useState({
-    matchesExpected: `RESPONSE TEXT TO EVALUATE:
-"{response}"
-
-EXPECTED OUTPUT CRITERIA:
-"{expectedOutput}"
-
-Does the RESPONSE TEXT meet the EXPECTED OUTPUT CRITERIA?
-
-EVALUATION INSTRUCTIONS:
-1. Break down the criteria into specific, testable requirements
-2. For each requirement, examine the actual response text and gather evidence
-3. If ANY requirement involves counting/measuring (syllables, words, lines, characters, items, format, structure, etc.), you MUST count/measure in the actual response and show your calculation
-4. Do NOT trust claims in the response - verify everything that can be verified
-5. Mark each requirement: ✓ (met), ✗ (not met), or ~ (partially met)
-6. Base your final determination ONLY on your analysis, not on assumptions
-
-Be strict and literal. Focus on what the response actually contains, not what it claims to contain.`,
-    
-    constraints: `RESPONSE TEXT TO CHECK:
-"{response}"
-
-CONSTRAINTS (what should NOT be in the response):
-{constraints}
-
-Does the RESPONSE TEXT violate any of these constraints?
-
-EVALUATION INSTRUCTIONS:
-1. Examine ONLY the response text itself, not the constraint descriptions
-2. Check each constraint separately
-3. Mark each as ✓ (no violation) or ✗ (violation found)
-4. Provide specific evidence for any violations`
-  })
 
   const allModels = [
     { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', group: 'Anthropic' },
@@ -243,9 +210,24 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
     const expectedLower = expectedOutput.toLowerCase()
     
     // AI-based semantic match - does it match expected output?
-    const matchPrompt = evaluationPrompts.matchesExpected
-      .replace('{response}', response)
-      .replace('{expectedOutput}', expectedOutput)
+    // This uses the prompt template from the backend (evaluate.js)
+    const matchPrompt = `RESPONSE TEXT TO EVALUATE:
+"${response}"
+
+EXPECTED OUTPUT CRITERIA:
+"${expectedOutput}"
+
+Does the RESPONSE TEXT meet the EXPECTED OUTPUT CRITERIA?
+
+EVALUATION INSTRUCTIONS:
+1. Break down the criteria into specific, testable requirements
+2. For each requirement, examine the actual response text and gather evidence
+3. If ANY requirement involves counting/measuring (syllables, words, lines, characters, items, format, structure, etc.), you MUST count/measure in the actual response and show your calculation
+4. Do NOT trust claims in the response - verify everything that can be verified
+5. Mark each requirement: ✓ (met), ✗ (not met), or ~ (partially met)
+6. Base your final determination ONLY on your analysis, not on assumptions
+
+Be strict and literal. Focus on what the response actually contains, not what it claims to contain.`
     
     const semanticEval = await runAIEvaluation(response, matchPrompt)
     checks.push({
@@ -389,52 +371,89 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
 
       {showPromptConfig && (
         <div className="test-library-modal">
-          <div className="test-library-content" style={{maxWidth: '900px'}}>
+          <div className="test-library-content" style={{maxWidth: '1000px', maxHeight: '90vh', overflowY: 'auto'}}>
             <div className="test-library-header">
-              <h2>⚙️ Configure AI Judge Prompts</h2>
+              <h2>⚙️ AI Judge Prompts (Read-Only)</h2>
               <button onClick={() => setShowPromptConfig(false)} className="close-btn">✕</button>
             </div>
             <div style={{padding: '1.5rem'}}>
-              <p style={{marginBottom: '1rem', color: '#666'}}>
-                Customize how the AI evaluates responses. Use <code>{'{'}response{'}'}</code>, <code>{'{'}expectedOutput{'}'}</code>, <code>{'{'}constraints{'}'}</code> as placeholders.
+              <p style={{marginBottom: '1.5rem', color: '#666', lineHeight: '1.6'}}>
+                These are the actual prompts used by the AI judge. Each evaluation uses the <strong>Master Template</strong> below with different <strong>criteria</strong> inserted depending on what's being checked.
               </p>
+
+              <div style={{marginBottom: '2rem', padding: '1rem', background: '#e3f2fd', borderRadius: '8px', borderLeft: '4px solid #2196f3'}}>
+                <strong>📚 How it works:</strong>
+                <ol style={{marginTop: '0.5rem', marginBottom: 0, paddingLeft: '1.5rem', lineHeight: '1.6'}}>
+                  <li>App creates a <strong>criteria</strong> (see examples below)</li>
+                  <li>Sends it to <code>/api/evaluate</code> along with the response</li>
+                  <li>Backend inserts criteria into the <strong>Master Template</strong></li>
+                  <li>Claude Sonnet 4 evaluates and returns PASS/PARTIAL/FAIL</li>
+                </ol>
+              </div>
               
-              <div className="prompt-config-section">
-                <label><strong>Matches Expected Output:</strong></label>
+              <div className="prompt-config-section" style={{marginBottom: '2rem'}}>
+                <label><strong>1️⃣ Master Evaluation Template</strong></label>
                 <p style={{fontSize: '0.85rem', color: '#666', marginBottom: '0.5rem'}}>
-                  This evaluates if the response meets the expected output criteria. Works for any type of output.
+                  This is the wrapper template from <code>api/evaluate.js</code> that all criteria get inserted into.
                 </p>
                 <textarea
-                  value={evaluationPrompts.matchesExpected}
-                  onChange={(e) => setEvaluationPrompts({...evaluationPrompts, matchesExpected: e.target.value})}
-                  rows="8"
+                  value={`You are a rigorous evaluation assistant. Your job is to objectively verify whether a response meets specific criteria.
+
+CRITERIA TO VERIFY:
+[Criteria from one of the templates below gets inserted here]
+
+RESPONSE TO EVALUATE:
+[The actual AI response being evaluated]
+
+EVALUATION PROCESS - Follow these steps strictly:
+
+Step 1: ANALYZE BEFORE JUDGING
+- Break down the criteria into individual, testable requirements
+- For each requirement, examine the response and gather evidence
+- If criteria involves counting/measuring (syllables, words, lines, characters, items, etc.), you MUST count/measure explicitly in the response and show your work
+- Do NOT assume any claims are true - verify everything verifiable
+- Mark each requirement as ✓ (met), ✗ (not met), or ~ (partially met)
+
+Step 2: DETERMINE RESULT BASED ON ANALYSIS
+Apply this logic strictly:
+- FAIL: If ANY critical requirement is not met (✗), or if multiple requirements are only partially met
+- PARTIAL: If all critical requirements are met (✓) but some minor requirements are not met or partially met
+- PASS: If ALL requirements are fully met (✓)
+
+When in doubt about severity: Be strict. It's better to FAIL and be corrected than to PASS incorrectly.
+
+Step 3: FORMAT YOUR RESPONSE
+Respond with ONLY valid JSON in this exact format:
+{"result": "PASS" or "PARTIAL" or "FAIL", "details": "Your detailed analysis here"}
+
+In the "details" field:
+- Start with your analysis using • bullets
+- Use ✓ for requirements met, ✗ for not met, ~ for partially met
+- Show all counting/calculations if applicable
+- End with "Conclusion: " followed by a one-sentence summary explaining the result
+
+CRITICAL: Your result must logically follow from your analysis. If your analysis shows failures (✗), you cannot give a PASS result.`}
+                  readOnly
+                  rows="28"
                   className="prompt-input"
-                  style={{fontFamily: 'monospace', fontSize: '0.9rem'}}
+                  style={{fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#f5f5f5', cursor: 'default'}}
                 />
               </div>
 
-              <div className="prompt-config-section">
-                <label><strong>Constraints Check:</strong></label>
-                <p style={{fontSize: '0.85rem', color: '#666', marginBottom: '0.5rem'}}>
-                  This checks if the response violates any constraints (what should NOT be in the response).
+              <div style={{marginBottom: '1.5rem', padding: '1rem', background: '#fff3e0', borderRadius: '8px'}}>
+                <strong>⬇️ Criteria Templates Below</strong>
+                <p style={{margin: '0.5rem 0 0 0', fontSize: '0.9rem', color: '#666'}}>
+                  These get inserted into the "CRITERIA TO VERIFY" section above
                 </p>
-                <textarea
-                  value={evaluationPrompts.constraints}
-                  onChange={(e) => setEvaluationPrompts({...evaluationPrompts, constraints: e.target.value})}
-                  rows="8"
-                  className="prompt-input"
-                  style={{fontFamily: 'monospace', fontSize: '0.9rem'}}
-                />
               </div>
 
-              <div style={{marginTop: '1.5rem', display: 'flex', gap: '1rem'}}>
-                <button onClick={() => setShowPromptConfig(false)} className="load-test-btn">
-                  ✅ Save & Close
-                </button>
-                <button 
-                  onClick={() => {
-                    setEvaluationPrompts({
-                      matchesExpected: `RESPONSE TEXT TO EVALUATE:
+              <div className="prompt-config-section" style={{marginBottom: '2rem'}}>
+                <label><strong>2️⃣ "Matches Expected Output" Criteria</strong></label>
+                <p style={{fontSize: '0.85rem', color: '#666', marginBottom: '0.5rem'}}>
+                  Used when checking if the response meets the "Expected Output" field. From <code>App.jsx</code> lines 214-230.
+                </p>
+                <textarea
+                  value={`RESPONSE TEXT TO EVALUATE:
 "{response}"
 
 EXPECTED OUTPUT CRITERIA:
@@ -450,25 +469,61 @@ EVALUATION INSTRUCTIONS:
 5. Mark each requirement: ✓ (met), ✗ (not met), or ~ (partially met)
 6. Base your final determination ONLY on your analysis, not on assumptions
 
-Be strict and literal. Focus on what the response actually contains, not what it claims to contain.`,
-                      constraints: `RESPONSE TEXT TO CHECK:
+Be strict and literal. Focus on what the response actually contains, not what it claims to contain.`}
+                  readOnly
+                  rows="12"
+                  className="prompt-input"
+                  style={{fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#e8f5e9', cursor: 'default'}}
+                />
+              </div>
+
+              <div className="prompt-config-section" style={{marginBottom: '2rem'}}>
+                <label><strong>3️⃣ "Requirements Met" Criteria</strong></label>
+                <p style={{fontSize: '0.85rem', color: '#666', marginBottom: '0.5rem'}}>
+                  Used when checking the "Requirements - What MUST be included" field. From <code>App.jsx</code> lines 132-140.
+                </p>
+                <textarea
+                  value={`RESPONSE TEXT TO CHECK:
 "{response}"
 
-CONSTRAINTS (what should NOT be in the response):
-{constraints}
+REQUIREMENTS (what MUST be included):
+{requirements}
 
-Does the RESPONSE TEXT violate any of these constraints?
+Question: Does the RESPONSE TEXT include all the required elements?
 
-EVALUATION INSTRUCTIONS:
-1. Examine ONLY the response text itself, not the constraint descriptions
-2. Check each constraint separately
-3. Mark each as ✓ (no violation) or ✗ (violation found)
-4. Provide specific evidence for any violations`
-                    })
-                  }}
-                  className="delete-test-btn"
-                >
-                  🔄 Reset to Defaults
+Examine the response text and verify each requirement is met.`}
+                  readOnly
+                  rows="8"
+                  className="prompt-input"
+                  style={{fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#e3f2fd', cursor: 'default'}}
+                />
+              </div>
+
+              <div className="prompt-config-section" style={{marginBottom: '2rem'}}>
+                <label><strong>4️⃣ "Avoid Compliance" Criteria</strong></label>
+                <p style={{fontSize: '0.85rem', color: '#666', marginBottom: '0.5rem'}}>
+                  Used when checking the "Avoid - What should NOT be included" field. From <code>App.jsx</code> lines 157-165.
+                </p>
+                <textarea
+                  value={`RESPONSE TEXT TO CHECK:
+"{response}"
+
+AVOID (what should NOT be in the response):
+{avoid}
+
+Question: Does the RESPONSE TEXT violate any avoid constraints?
+
+Examine ONLY the response text, not the constraint wording itself. Report violations clearly.`}
+                  readOnly
+                  rows="8"
+                  className="prompt-input"
+                  style={{fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#fff3e0', cursor: 'default'}}
+                />
+              </div>
+
+              <div style={{marginTop: '1.5rem'}}>
+                <button onClick={() => setShowPromptConfig(false)} className="load-test-btn">
+                  Close
                 </button>
               </div>
             </div>
@@ -552,7 +607,7 @@ EVALUATION INSTRUCTIONS:
                     onClick={() => setShowPromptConfig(!showPromptConfig)} 
                     className="config-prompt-btn"
                   >
-                    ⚙️ Configure AI Judge
+                    👁️ View AI Judge Prompts
                   </button>
                 </div>
               </div>
