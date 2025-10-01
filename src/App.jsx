@@ -50,7 +50,7 @@ function App() {
         expectedOutput: 'Proper haiku format',
         requirements: 'Some words in Swedish',
         avoid: 'Any english words',
-        models: ['claude-sonnet-4.5', 'gpt-4o']
+        models: ['claude-sonnet-4.5', 'gpt-3.5-turbo']
       }
       setSavedTests([defaultTest])
       localStorage.setItem('evalTests', JSON.stringify([defaultTest]))
