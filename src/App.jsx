@@ -54,6 +54,14 @@ function App() {
       }
       setSavedTests([defaultTest])
       localStorage.setItem('evalTests', JSON.stringify([defaultTest]))
+      
+      // Also load the default test into the form
+      setTestCaseName(defaultTest.testCaseName)
+      setPrompt(defaultTest.prompt)
+      setExpectedOutput(defaultTest.expectedOutput)
+      setRequirements(defaultTest.requirements)
+      setAvoid(defaultTest.avoid)
+      setSelectedModels(defaultTest.models)
     }
   }, [])
 
