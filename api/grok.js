@@ -9,14 +9,21 @@ export default async function handler(req, res) {
   try {
     const startTime = Date.now()
     
+    // Map model names to xAI API model identifiers
+    let apiModel = model
+    if (model === 'grok-4') apiModel = 'grok-4-latest'
+    else if (model === 'grok-3') apiModel = 'grok-3-latest'
+    else if (model === 'grok-2') apiModel = 'grok-2-latest'
+    else if (model === 'grok-2-mini') apiModel = 'grok-2-mini-latest'
+    
     const response = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.VITE_XAI_API_KEY}`
+        'Authorization': `Bearer ${process.env.XAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: model === 'grok-2' ? 'grok-2-latest' : model === 'grok-2-mini' ? 'grok-2-mini-latest' : model,
+        model: apiModel,
         messages: [{
           role: 'user',
           content: prompt

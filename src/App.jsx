@@ -14,14 +14,12 @@ function App() {
   const [error, setError] = useState('')
   const [savedTests, setSavedTests] = useState([])
   const [showTestLibrary, setShowTestLibrary] = useState(false)
-  const [selectedModels, setSelectedModels] = useState([])
+  const [selectedModels, setSelectedModels] = useState(['claude-sonnet-4.5', 'gpt-5', 'gemini-2.5-pro', 'grok-4'])
   const [showPromptConfig, setShowPromptConfig] = useState(false)
 
   const allModels = [
     { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', group: 'Anthropic' },
     { id: 'claude-opus-4.1', name: 'Claude Opus 4.1', group: 'Anthropic' },
-    { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', group: 'Anthropic' },
-    { id: 'claude-opus-4', name: 'Claude Opus 4', group: 'Anthropic' },
     { id: 'claude-sonnet-3.7', name: 'Claude Sonnet 3.7', group: 'Anthropic' },
     { id: 'claude-opus-3.7', name: 'Claude Opus 3.7', group: 'Anthropic' },
     { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (New)', group: 'Anthropic' },
@@ -34,6 +32,13 @@ function App() {
     { id: 'gpt-5-codex', name: 'GPT-5-codex', group: 'OpenAI' },
     { id: 'gpt-4o', name: 'GPT-4o', group: 'OpenAI' },
     { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', group: 'OpenAI' },
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', group: 'Google' },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', group: 'Google' },
+    { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', group: 'Google' },
+    { id: 'grok-4', name: 'Grok 4', group: 'xAI' },
+    { id: 'grok-3', name: 'Grok 3', group: 'xAI' },
+    { id: 'grok-2', name: 'Grok 2', group: 'xAI' },
+    { id: 'grok-2-mini', name: 'Grok 2 Mini', group: 'xAI' },
   ]
 
   useEffect(() => {
@@ -70,11 +75,11 @@ function App() {
       if (prev.includes(modelId)) {
         // Allow unchecking
         return prev.filter(m => m !== modelId)
-      } else if (prev.length < 3) {
-        // Only allow checking if less than 3 selected
+      } else if (prev.length < 4) {
+        // Only allow checking if less than 4 selected
         return [...prev, modelId]
       }
-      // Already have 3 selected, don't add more
+      // Already have 4 selected, don't add more
       return prev
     })
   }
@@ -98,36 +103,74 @@ function App() {
         return
       }
 
-      const results = []
-      
-      for (const testModel of modelsToTest) {
-        const result = await callAIModel(prompt, testModel)
-        const structuralChecks = await runStructuralChecksWithConstraints(result.response, expectedOutput, prompt, requirements, avoid)
-        
-        const newResponse = {
-          id: Date.now() + Math.random(),
-          testCaseName: testCaseName,
-          prompt: prompt,
-          expectedOutput: expectedOutput,
-          requirements: requirements,
-          avoid: avoid,
-          model: testModel,
-          response: result.response,
-          timestamp: new Date().toLocaleString(),
-          rating: null,
-          structuralChecks: structuralChecks,
-          metrics: {
-            responseTime: result.responseTime,
-            tokenCount: result.tokenCount,
-            inputTokens: result.inputTokens,
-            outputTokens: result.outputTokens
+      // Run all models in parallel and update UI as each completes
+      const promises = modelsToTest.map(async (testModel) => {
+        try {
+          const result = await callAIModel(prompt, testModel)
+          const structuralChecks = await runStructuralChecksWithConstraints(result.response, expectedOutput, prompt, requirements, avoid)
+          
+          const newResponse = {
+            id: Date.now() + Math.random(),
+            testCaseName: testCaseName,
+            prompt: prompt,
+            expectedOutput: expectedOutput,
+            requirements: requirements,
+            avoid: avoid,
+            model: testModel,
+            response: result.response,
+            timestamp: new Date().toLocaleString(),
+            rating: null,
+            structuralChecks: structuralChecks,
+            metrics: {
+              responseTime: result.responseTime,
+              tokenCount: result.tokenCount,
+              inputTokens: result.inputTokens,
+              outputTokens: result.outputTokens
+            }
           }
+          
+          // Update UI immediately as this result completes
+          setResponses(prev => [...prev, newResponse])
+          
+          return newResponse
+        } catch (err) {
+          // Handle individual model errors gracefully
+          const errorResponse = {
+            id: Date.now() + Math.random(),
+            testCaseName: testCaseName,
+            prompt: prompt,
+            expectedOutput: expectedOutput,
+            requirements: requirements,
+            avoid: avoid,
+            model: testModel,
+            response: `Error: ${err.message}`,
+            timestamp: new Date().toLocaleString(),
+            rating: null,
+            structuralChecks: [{
+              name: 'Error',
+              result: 'FAIL',
+              passed: false,
+              details: `Failed to get response: ${err.message}`,
+              type: 'error'
+            }],
+            metrics: {
+              responseTime: 0,
+              tokenCount: 0,
+              inputTokens: 0,
+              outputTokens: 0
+            }
+          }
+          
+          // Update UI with error
+          setResponses(prev => [...prev, errorResponse])
+          
+          return errorResponse
         }
-        
-        results.push(newResponse)
-      }
+      })
       
-      setResponses(results)
+      // Wait for all to complete
+      await Promise.all(promises)
+      
       // Keep form filled for iteration
     } catch (err) {
       setError(err.message)
@@ -634,8 +677,8 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
               </div>
               
               <div>
-                <div style={{marginBottom: '0.5rem', fontSize: '0.9rem', color: selectedModels.length >= 3 ? '#d32f2f' : '#666'}}>
-                  Selected: {selectedModels.length}/3 models {selectedModels.length >= 3 && '(max reached)'}
+                <div style={{marginBottom: '0.5rem', fontSize: '0.9rem', color: selectedModels.length >= 4 ? '#d32f2f' : '#666'}}>
+                  Selected: {selectedModels.length}/4 models {selectedModels.length >= 4 && '(max reached)'}
                 </div>
                 <div className="model-checkboxes-grouped">
                   <div className="model-group">
@@ -647,9 +690,9 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
                             type="checkbox"
                             checked={selectedModels.includes(m.id)}
                             onChange={() => toggleModelSelection(m.id)}
-                            disabled={!selectedModels.includes(m.id) && selectedModels.length >= 3}
+                            disabled={!selectedModels.includes(m.id) && selectedModels.length >= 4}
                           />
-                          <span className="model-name" style={{opacity: (!selectedModels.includes(m.id) && selectedModels.length >= 3) ? 0.4 : 1}}>{m.name}</span>
+                          <span className="model-name" style={{opacity: (!selectedModels.includes(m.id) && selectedModels.length >= 4) ? 0.4 : 1}}>{m.name}</span>
                         </label>
                       ))}
                     </div>
@@ -663,9 +706,41 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
                             type="checkbox"
                             checked={selectedModels.includes(m.id)}
                             onChange={() => toggleModelSelection(m.id)}
-                            disabled={!selectedModels.includes(m.id) && selectedModels.length >= 3}
+                            disabled={!selectedModels.includes(m.id) && selectedModels.length >= 4}
                           />
-                          <span className="model-name" style={{opacity: (!selectedModels.includes(m.id) && selectedModels.length >= 3) ? 0.4 : 1}}>{m.name}</span>
+                          <span className="model-name" style={{opacity: (!selectedModels.includes(m.id) && selectedModels.length >= 4) ? 0.4 : 1}}>{m.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="model-group">
+                    <div className="model-group-header">Google</div>
+                    <div style={{display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'flex-start', alignItems: 'center'}}>
+                      {allModels.filter(m => m.group === 'Google').map(m => (
+                        <label key={m.id} className="model-checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={selectedModels.includes(m.id)}
+                            onChange={() => toggleModelSelection(m.id)}
+                            disabled={!selectedModels.includes(m.id) && selectedModels.length >= 4}
+                          />
+                          <span className="model-name" style={{opacity: (!selectedModels.includes(m.id) && selectedModels.length >= 4) ? 0.4 : 1}}>{m.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="model-group">
+                    <div className="model-group-header">xAI</div>
+                    <div style={{display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'flex-start', alignItems: 'center'}}>
+                      {allModels.filter(m => m.group === 'xAI').map(m => (
+                        <label key={m.id} className="model-checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={selectedModels.includes(m.id)}
+                            onChange={() => toggleModelSelection(m.id)}
+                            disabled={!selectedModels.includes(m.id) && selectedModels.length >= 4}
+                          />
+                          <span className="model-name" style={{opacity: (!selectedModels.includes(m.id) && selectedModels.length >= 4) ? 0.4 : 1}}>{m.name}</span>
                         </label>
                       ))}
                     </div>

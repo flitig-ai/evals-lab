@@ -4,12 +4,23 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const { prompt } = req.body
+  const { prompt, model } = req.body
+  
+  // Map model IDs to Gemini API model names
+  const modelMap = {
+    'gemini-2.5-pro': 'gemini-2.5-pro',
+    'gemini-2.5-flash': 'gemini-2.5-flash',
+    'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
+    'gemini-pro': 'gemini-pro' // Legacy support
+  }
+  
+  const apiModel = modelMap[model] || 'gemini-2.5-pro'
+  const apiKey = process.env.GOOGLE_API_KEY
   
   try {
     const startTime = Date.now()
     
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.VITE_GOOGLE_API_KEY}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${apiModel}:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
