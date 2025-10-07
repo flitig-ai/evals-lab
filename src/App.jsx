@@ -16,6 +16,7 @@ function App() {
   const [showTestLibrary, setShowTestLibrary] = useState(false)
   const [selectedModels, setSelectedModels] = useState(['claude-sonnet-4.5', 'gpt-5', 'gemini-2.5-pro', 'grok-4'])
   const [showPromptConfig, setShowPromptConfig] = useState(false)
+  const [copyFeedback, setCopyFeedback] = useState('')
 
   const allModels = [
     { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', group: 'Anthropic' },
@@ -181,6 +182,33 @@ function App() {
 
   const clearHistory = () => {
     setResponses([])
+  }
+
+  const copyToClipboard = async (text, feedbackMessage) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyFeedback(feedbackMessage)
+      setTimeout(() => setCopyFeedback(''), 2000)
+    } catch (err) {
+      console.error('Failed to copy text: ', err)
+      setCopyFeedback('Kopiering misslyckades')
+      setTimeout(() => setCopyFeedback(''), 2000)
+    }
+  }
+
+  const copyIndividualResponse = (response) => {
+    const text = `${response.model}:\n${response.response}`
+    copyToClipboard(text, `Kopierade ${response.model}`)
+  }
+
+  const copyAllResponses = () => {
+    if (responses.length === 0) return
+    
+    const allText = responses.map(response => 
+      `${response.model}:\n${response.response}\n${'='.repeat(50)}`
+    ).join('\n\n')
+    
+    copyToClipboard(allText, `Kopierade alla ${responses.length} modeller`)
   }
 
   const rateResponse = (id, stars, comment = '') => {
@@ -841,7 +869,46 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
               <p>No evaluations yet. Enter a prompt above to get started!</p>
             </div>
           ) : (
-            <div className="comparison-grid">
+            <>
+              {/* Copy All Button */}
+              <div style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3>Results</h3>
+                <button 
+                  onClick={copyAllResponses}
+                  className="copy-all-btn"
+                  style={{
+                    background: '#667eea',
+                    color: 'white',
+                    border: 'none',
+                    padding: '0.5rem 1rem',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}
+                >
+                  📋 Kopiera alla
+                </button>
+              </div>
+              
+              {/* Copy Feedback */}
+              {copyFeedback && (
+                <div style={{
+                  background: '#e8f5e9',
+                  color: '#2e7d32',
+                  padding: '0.5rem 1rem',
+                  borderRadius: '6px',
+                  marginBottom: '1rem',
+                  textAlign: 'center',
+                  fontSize: '0.9rem'
+                }}>
+                  {copyFeedback}
+                </div>
+              )}
+              
+              <div className="comparison-grid">
               {/* Test Case Name */}
               {responses[0]?.testCaseName && (
                 <div className="comparison-row">
@@ -871,8 +938,30 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
               <div className="comparison-row">
                 <div className="row-label">Response</div>
                 {responses.map((result) => (
-                  <div key={`response-${result.id}`} className="row-content" style={{whiteSpace: 'pre-line'}}>
-                    {result.response}
+                  <div key={`response-${result.id}`} className="row-content" style={{whiteSpace: 'pre-line', position: 'relative'}}>
+                    <button
+                      onClick={() => copyIndividualResponse(result)}
+                      className="copy-individual-btn"
+                      style={{
+                        position: 'absolute',
+                        top: '0.5rem',
+                        right: '0.5rem',
+                        background: '#f5f5f5',
+                        border: '1px solid #ddd',
+                        borderRadius: '4px',
+                        padding: '0.25rem 0.5rem',
+                        cursor: 'pointer',
+                        fontSize: '0.8rem',
+                        color: '#666',
+                        zIndex: 1
+                      }}
+                      title="Kopiera denna respons"
+                    >
+                      📋
+                    </button>
+                    <div style={{ paddingRight: '3rem' }}>
+                      {result.response}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -947,6 +1036,7 @@ Examine ONLY the response text, not the constraint wording itself. Report violat
                 </div>
               </div>
             </div>
+            </>
           )}
         </div>
       </main>

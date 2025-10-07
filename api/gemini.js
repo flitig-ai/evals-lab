@@ -30,7 +30,10 @@ export default async function handler(req, res) {
           parts: [{
             text: prompt
           }]
-        }]
+        }],
+        generationConfig: {
+          maxOutputTokens: 4096
+        }
       })
     })
 

@@ -548,6 +548,22 @@ button {
   background: #f8d7da;
 }
 
+/* Copy button styles */
+.copy-all-btn:hover {
+  background: #5a67d8 !important;
+  transform: translateY(-1px);
+  transition: all 0.2s ease;
+}
+
+.copy-individual-btn {
+  transition: all 0.2s ease;
+}
+
+.copy-individual-btn:hover {
+  background: #e0e0e0 !important;
+  transform: scale(1.05);
+}
+
 .check-icon {
   font-size: 1.1rem;
 }

@@ -24,6 +24,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: apiModel,
+        max_tokens: 4096,
         messages: [{
           role: 'user',
           content: prompt
