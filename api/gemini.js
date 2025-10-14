@@ -32,7 +32,7 @@ export default async function handler(req, res) {
           }]
         }],
         generationConfig: {
-          maxOutputTokens: 4096
+          maxOutputTokens: 8192
         }
       })
     })
